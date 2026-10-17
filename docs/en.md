@@ -83,14 +83,17 @@ about 10 seconds later. One command at a time.
   1 h, 6 h, then every 24 h.
 - **429 (too many requests)**: a pause of 1 minute to 6 hours (15 minutes
   without a hint), for everything (reads, button, commands), kept across a
-  restart. **403**: one hour.
+  restart. **403** of the main read: one hour; 403 on a command: that command
+  only is refused; 403 on a secondary read: that endpoint is skipped for an
+  hour.
 - **Network, 5xx**: new try after 2, 5, 10, 15, then 30 minutes, never faster
   than the interval.
 - Stops and pauses are kept in `/data`, for 24 h at most. `/data` also keeps
-  the Ohme session token, in clear, in a file only the integration can read
-  (0600); never the e-mail nor the password.
-- **Charger offline**: the connector turns "unavailable"; power, current and
-  voltage keep their last value.
+  the Ohme session token, in clear, in a file reserved to the container user
+  (0600), so also readable by the administrator of the machine and in the
+  backups of the volume; never the e-mail nor the password.
+- **Charger offline**: the connector turns "unavailable"; power, current,
+  voltage and charging state keep their last value.
 - **One charger**: with several chargers, only the first one is shown (as
   ohmepy).
 - Charge approval, the schedule (target time), solar mode and the price cap

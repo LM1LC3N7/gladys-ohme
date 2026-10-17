@@ -90,14 +90,18 @@ commande à la fois.
   essai après 1 h, 6 h, puis toutes les 24 h.
 - **429 (trop de requêtes)** : pause de 1 minute à 6 heures (15 minutes sans
   indication), pour tout (lectures, bouton, commandes), gardée après un
-  redémarrage. **403** : pause d'une heure.
+  redémarrage. **403** de la lecture principale : pause d'une heure ; 403 sur
+  une commande : cette commande seule est refusée ; 403 sur une lecture
+  secondaire : cet endpoint est sauté une heure.
 - **Réseau, 5xx** : nouvel essai après 2, 5, 10, 15 puis 30 minutes, jamais
   plus vite que l'intervalle.
 - Les arrêts et pauses sont gardés dans `/data`, au plus 24 h. `/data` garde
-  aussi le jeton de session Ohme, en clair, dans un fichier lisible par
-  l'intégration seule (0600) ; jamais l'e-mail ni le mot de passe.
+  aussi le jeton de session Ohme, en clair, dans un fichier réservé à
+  l'utilisateur du conteneur (0600), donc lisible aussi par l'administrateur
+  de la machine et dans les sauvegardes du volume ; jamais l'e-mail ni le mot
+  de passe.
 - **Borne hors ligne** : le connecteur passe à « indisponible » ; puissance,
-  courant et tension gardent leur dernière valeur.
+  courant, tension et état de charge gardent leur dernière valeur.
 - **Une seule borne** : avec plusieurs bornes, seule la première est montrée
   (comme ohmepy).
 - Ni l'approbation d'une charge, ni le planning (heure cible), ni le mode

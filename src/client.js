@@ -129,10 +129,15 @@ export class OhmeClient {
 
   /** Signs in with the e-mail and the password (ohmepy's async_login). */
   signIn({ deadline } = {}) {
+    return this.authenticate(() => this.signInNow(deadline));
+  }
+
+  /** The sign-in itself; only ever run inside authenticate(). */
+  async signInNow(deadline) {
     if (!this.hasCredentials) {
-      return Promise.reject(new OhmeError('no_credentials', 'no e-mail or password'));
+      throw new OhmeError('no_credentials', 'no e-mail or password');
     }
-    return this.authenticate(async () => {
+    {
       const { email } = this;
       const json = await this.firebase(
         URLS.signIn,
@@ -154,13 +159,18 @@ export class OhmeClient {
       );
       await this.changed();
       return this.session;
-    });
+    }
   }
 
   /** Renews the token from the refresh token (ohmepy's _async_refresh_session). */
   renew({ deadline } = {}) {
+    return this.authenticate(() => this.renewNow(deadline));
+  }
+
+  /** The renewal itself; only ever run inside authenticate(). */
+  async renewNow(deadline) {
     const refreshToken = this.session?.refreshToken;
-    return this.authenticate(async () => {
+    {
       const json = await this.firebase(
         URLS.refresh,
         { grant_type: 'refresh_token', refresh_token: refreshToken },
@@ -178,27 +188,37 @@ export class OhmeClient {
       );
       await this.changed();
       return this.session;
-    });
+    }
   }
 
   /**
    * A usable token: a sign-in when there is no session (one per cycle), a
    * renewal when it is due. A refused refresh token drops the session and
    * signs in once. Resolves true when the token is a new one.
+   *
+   * The renewal and its fallback sign-in run as ONE authenticate() step, so
+   * two callers (the polling and a command) never race on the session: the
+   * second one joins the step and gets its outcome, its real error included
+   * (a refused password stays `refused`, never becomes `session_refused`).
    */
   async ensureToken({ deadline } = {}) {
     if (this.authenticating) {
-      // A sign-in or renewal is running (the polling and a command at once):
-      // join it, then look at the session it left.
-      await this.authenticating.catch(() => {});
+      await this.authenticating;
+      if (this.session && this.now() < this.session.renewAt) {
+        return true;
+      }
     }
     if (this.session && this.now() < this.session.renewAt) {
       return false;
     }
+    await this.authenticate(() => this.renewOrSignIn(deadline));
+    return true;
+  }
+
+  async renewOrSignIn(deadline) {
     if (this.session) {
       try {
-        await this.renew({ deadline });
-        return true;
+        return await this.renewNow(deadline);
       } catch (err) {
         if (err.kind !== 'refresh_refused') {
           throw err;
@@ -211,8 +231,7 @@ export class OhmeClient {
       throw new OhmeError('session_refused', 'the session was refused after a new sign-in');
     }
     this.relogged = true;
-    await this.signIn({ deadline });
-    return true;
+    return this.signInNow(deadline);
   }
 
   /** One API request with the current token; resolves the parsed JSON (or undefined). */

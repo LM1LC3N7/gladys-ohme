@@ -38,7 +38,9 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (OhmeApp)
 - **Errors**: a refused password or sign-in request stops, one new try after
   6 h then every 24 h; a token refused right after a renewal: 1 h, 6 h, then
   24 h; 429: `Retry-After` bounded to 1 min – 6 h (15 min without), every
-  path; 403: one hour; 5xx/network: 2 to 30 minutes, never under the
+  path; 403 of the main read: one hour, 403 on a command: that command only
+  refused, 403 on a secondary read: that endpoint skipped for an hour;
+  5xx/network: 2 to 30 minutes, never under the
   interval. Pauses and stops are kept in `/data`, bounded to 24 h at a
   restart. Logs carry error codes only.
 - **Energy**: no cumulative index exists in the API: no `index`, no
