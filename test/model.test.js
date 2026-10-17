@@ -73,10 +73,15 @@ test('the snapshot: battery, target, energy kept during the session, planned end
   assert.equal(first.energyWh, 4520);
   assert.equal(first.chargeEnd, NOW + 3 * HOUR + 30 * MINUTE);
   const lower = readSnapshot(
-    { session: charging(NOW, { batterySoc: { wh: 100 } }), previous: first },
+    { session: charging(NOW, { batterySoc: { wh: 4480 } }), previous: first },
     NOW,
   );
   assert.equal(lower.energyWh, 4520, 'the highest reading of the session');
+  const dropped = readSnapshot(
+    { session: charging(NOW, { batterySoc: { wh: 150 } }), previous: lower },
+    NOW,
+  );
+  assert.equal(dropped.energyWh, 150, 'a clear drop is a new session');
   const out = readSnapshot(
     { session: unplugged(), nextRule: nextRule().rule, previous: lower },
     NOW,

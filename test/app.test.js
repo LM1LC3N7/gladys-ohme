@@ -177,7 +177,7 @@ test('one sign-in, then the account, the session and the next rule: device, stat
   assert.match(message(gladys).fr, /Connecté à Ohme \(En charge\)/);
   assert.equal(gladys.fake.transports.at(-1).transport, DEVICE_TRANSPORTS.CLOUD);
   assert.equal(gladys.fake.publishedEnergyConsumption.length, 0, 'no energy consumption');
-  for (const secret of [PASSWORD, ...server.secrets]) {
+  for (const secret of [PASSWORD, EMAIL, ...server.secrets]) {
     assert.ok(!logs.join('\n').includes(secret), 'no secret in the logs');
   }
 });
@@ -214,13 +214,82 @@ test('unplugged: power 0, connector available, charging state idle, last session
   assert.equal(last(gladys, 'charge-end'), '—');
 });
 
-test('an offline charger: connector unavailable, badge unreachable, no stale power', async (t) => {
-  const { gladys, server, advance } = await setup(t);
-  server.session = charging(Date.now(), { chargerStatus: { online: false } });
+test('an offline charger: connector unavailable, badge unreachable, last readings kept, commands refused', async (t) => {
+  const config = { ...CONFIG, allow_commands: true };
+  const { gladys, server, advance } = await setup(t, { config });
+  server.session = charging(Date.now(), {
+    chargerStatus: { online: false },
+    power: { watt: 1, amp: 1, volt: 1 },
+  });
   await advance(MINUTE);
   assert.equal(last(gladys, 'status'), 'Borne hors ligne');
   assert.equal(last(gladys, 'connector-status'), CONNECTOR_STATUS.UNAVAILABLE);
   assert.equal(gladys.fake.transports.at(-1).transport, DEVICE_TRANSPORTS.UNREACHABLE);
+  // Offline readings are not published: the last ones are kept (documented).
+  assert.equal(last(gladys, 'power'), 7200);
+  const ack = await gladys.fake.setValue(
+    deviceOf(gladys),
+    featureOf(gladys, 'charge-mode'),
+    'max_charge',
+  );
+  assert.match(ack.error, /hors ligne/);
+  assert.equal(server.commands().length, 0);
+});
+
+test('secondary reads: a 401 never stops, a 403 skips that endpoint for an hour', async (t) => {
+  const { gladys, server, advance, store } = await setup(t);
+  server.queue.push({
+    match: (r) => r.path === '/v1/chargeSessions/nextSessionInfo',
+    status: 401,
+  });
+  await advance(MINUTE);
+  assert.equal(store.data.block, null, 'no stop');
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  const renewals = server.renewals().length;
+  server.queue.push({
+    match: (r) => r.path === '/v1/chargeSessions/nextSessionInfo',
+    status: 403,
+  });
+  await advance(MINUTE);
+  const reads = server.of('/v1/chargeSessions/nextSessionInfo').length;
+  await advance(30 * MINUTE, MINUTE);
+  assert.equal(server.of('/v1/chargeSessions/nextSessionInfo').length, reads, 'skipped');
+  assert.equal(server.renewals().length, renewals, 'no renewal for a secondary 403');
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  await advance(31 * MINUTE, MINUTE);
+  assert.ok(server.of('/v1/chargeSessions/nextSessionInfo').length > reads, 'read again after 1 h');
+});
+
+test('a 403 on a command refuses that command only, a waiting approval is named', async (t) => {
+  const config = { ...CONFIG, allow_commands: true, language: 'en' };
+  const { gladys, server, store } = await setup(t, { config });
+  server.queue.push({ match: (r) => r.method === 'PUT', status: 403 });
+  let ack = await gladys.fake.setValue(
+    deviceOf(gladys),
+    featureOf(gladys, 'charge-mode'),
+    'max_charge',
+  );
+  assert.match(ack.error, /refused the command.*HTTP 403/);
+  assert.equal(store.data.pause, null, 'no pause for a command 403');
+  server.session = charging(Date.now(), { mode: 'PENDING_APPROVAL' });
+  ack = await gladys.fake.setValue(deviceOf(gladys), featureOf(gladys, 'charge-mode'), 'paused');
+  assert.match(ack.error, /waiting for approval in the Ohme app/);
+});
+
+test('the target of the next session is decided on a fresh read of its rule', async (t) => {
+  const config = { ...CONFIG, allow_commands: true };
+  const { gladys, server } = await setup(t, { config });
+  server.session = unplugged();
+  server.next = { rule: { id: 'rule-next', targetPercent: 60 } };
+  const reads = server.of('/v1/chargeSessions/nextSessionInfo').length;
+  const ack = await gladys.fake.setValue(
+    deviceOf(gladys),
+    featureOf(gladys, 'set-target-percent'),
+    '70',
+  );
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(server.of('/v1/chargeSessions/nextSessionInfo').length, reads + 1);
+  assert.equal(server.commands().at(-1).path, '/v2/users/me/charge-rules/rule-next');
 });
 
 test('a refused password stops, is kept in /data, and is tried again only after 6 h then 24 h', async (t) => {

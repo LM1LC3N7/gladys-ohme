@@ -70,8 +70,8 @@ export const T = {
   ),
   refused: (wait) =>
     both(
-      `Ohme refused the e-mail or the password: check them in the configuration. One new try in ${wait.en}, or save the configuration, or click "Test the connection".`,
-      `Ohme a refusé l'e-mail ou le mot de passe : vérifiez-les dans la configuration. Nouvel essai dans ${wait.fr}, ou enregistrez la configuration, ou cliquez sur « Tester la connexion ».`,
+      `Ohme refused the e-mail or the password: check them in the configuration. One new try in ${wait.en}, or save corrected credentials, or click "Test the connection".`,
+      `Ohme a refusé l'e-mail ou le mot de passe : vérifiez-les dans la configuration. Nouvel essai dans ${wait.fr}, ou enregistrez des identifiants corrigés, ou cliquez sur « Tester la connexion ».`,
     ),
   loginRejected: (status, wait) =>
     both(
@@ -129,6 +129,14 @@ export const ERRORS = {
     'Une commande est encore en cours : réessayez dans quelques secondes.',
   ),
   noVehicle: both('No vehicle is plugged in.', "Aucun véhicule n'est branché."),
+  offline: both(
+    'The charger is offline for Ohme: the command was not sent.',
+    "La borne est hors ligne pour Ohme : la commande n'a pas été envoyée.",
+  ),
+  pendingApproval: both(
+    'The charge is waiting for approval in the Ohme app: approve it there first.',
+    "La charge est en attente d'approbation dans l'application Ohme : approuvez-la d'abord.",
+  ),
   resumeFirst: both(
     'The charge is paused: choose "Smart charge" first to resume it.',
     "La charge est en pause : choisissez d'abord « Charge intelligente » pour la reprendre.",

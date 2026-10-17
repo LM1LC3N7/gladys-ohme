@@ -3,9 +3,10 @@
 //
 // `ext:<selector>:charger:<serial>`: one device per Ohme charger (the first
 // one of the account, as ohmepy). Readings are read only. The two commands are
-// `text`/`select` features (never a switch nor a binary: a voice assistant's
-// "turn everything off" or a scene must not reach them), refused unless the
-// configuration allows them.
+// `text`/`select` features (never a switch nor a binary: a "turn everything
+// off" must not reach them; only an explicit action on the select can),
+// refused unless the configuration allows them. Offline, the readings are not
+// published: Gladys keeps their last value.
 //
 // Categories and units are those the core lists
 // (DEVICE_FEATURE_UNITS_BY_CATEGORY): W, A and V on `energy-sensor` (power,

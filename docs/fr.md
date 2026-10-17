@@ -65,12 +65,20 @@ désactivée. Activée :
 - **Cible de batterie** : change la cible de la session en cours, ou de la
   suivante si rien n'est branché.
 
-Ce sont des listes, jamais des interrupteurs : un « éteins tout » d'un
-assistant vocal ou d'une scène ne les touche pas. Avant chaque commande,
-l'intégration relit l'état de la borne ; une commande inutile (déjà dans ce
-mode) n'est pas envoyée, une commande sans véhicule branché est refusée.
-Gladys attend la réponse 5 secondes : une commande qui ne peut pas partir
-dans les 3,5 secondes est refusée sans être envoyée. Une commande à la fois.
+Ce sont des listes, jamais des interrupteurs : un « éteins tout » ne les
+touche pas. Google Home, Alexa et HomeKit ne les voient pas, et le serveur MCP
+de Gladys les lit seulement. Une scène peut les changer, mais seulement par
+une action explicite sur cette liste, et seulement si les commandes sont
+autorisées.
+
+Avant chaque commande, l'intégration relit l'état de la borne (et la règle
+de la session suivante pour une cible) ; une commande inutile (déjà dans ce
+mode) n'est pas envoyée, une commande sans véhicule branché, borne hors
+ligne ou charge en attente d'approbation est refusée. Une commande qui ne
+peut pas partir dans les 3,5 secondes est refusée sans être envoyée. Gladys
+reçoit une réponse au bout de 4,3 secondes au plus, même si Ohme n'a pas
+encore confirmé : l'état réel s'affiche environ 10 secondes plus tard. Une
+commande à la fois.
 
 ## Erreurs et limites
 
@@ -85,7 +93,11 @@ dans les 3,5 secondes est refusée sans être envoyée. Une commande à la fois.
   redémarrage. **403** : pause d'une heure.
 - **Réseau, 5xx** : nouvel essai après 2, 5, 10, 15 puis 30 minutes, jamais
   plus vite que l'intervalle.
-- Les arrêts et pauses sont gardés dans `/data`, au plus 24 h.
+- Les arrêts et pauses sont gardés dans `/data`, au plus 24 h. `/data` garde
+  aussi le jeton de session Ohme, en clair, dans un fichier lisible par
+  l'intégration seule (0600) ; jamais l'e-mail ni le mot de passe.
+- **Borne hors ligne** : le connecteur passe à « indisponible » ; puissance,
+  courant et tension gardent leur dernière valeur.
 - **Une seule borne** : avec plusieurs bornes, seule la première est montrée
   (comme ohmepy).
 - Ni l'approbation d'une charge, ni le planning (heure cible), ni le mode

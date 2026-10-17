@@ -187,6 +187,11 @@ export class OhmeClient {
    * signs in once. Resolves true when the token is a new one.
    */
   async ensureToken({ deadline } = {}) {
+    if (this.authenticating) {
+      // A sign-in or renewal is running (the polling and a command at once):
+      // join it, then look at the session it left.
+      await this.authenticating.catch(() => {});
+    }
     if (this.session && this.now() < this.session.renewAt) {
       return false;
     }
@@ -248,8 +253,20 @@ export class OhmeClient {
    * An authenticated read. A refused token (401, or a 403 that may be one)
    * renews once and retries once; refused again, it is `session_refused`
    * (401) or `forbidden` (403) and the caller stops or pauses.
+   *
+   * `secondary: true` (the reads after the main one): no sign-in, no
+   * renewal, no new try; a 401/403 comes back as is (`unauthorized`,
+   * `forbidden`), never as a stop.
    */
-  async read(path, options = {}) {
+  async read(path, { secondary = false, ...options } = {}) {
+    if (secondary) {
+      if (!this.session || this.now() >= this.session.expiresAt) {
+        throw new OhmeError('unauthorized', 'no valid token for a secondary read', {
+          notSent: true,
+        });
+      }
+      return this.request('GET', path, options);
+    }
     const fresh = await this.ensureToken(options);
     try {
       return await this.request('GET', path, options);
@@ -283,8 +300,8 @@ export class OhmeClient {
   /**
    * A command: sent once, never retried (a retry could act twice), and never
    * sent after `sendBy` (it is refused unsent instead); its answer may come
-   * later (the usual timeout). A refused token only forces a renewal at the
-   * next call.
+   * later (the usual timeout). A refused token (401 or 403) only forces one
+   * renewal at the next call.
    */
   async command(method, path, { payload, sendBy, onSent } = {}) {
     await this.ensureToken({ deadline: sendBy });
@@ -294,7 +311,7 @@ export class OhmeClient {
     try {
       await this.request(method, path, { payload, onSent });
     } catch (err) {
-      if (err.kind === 'unauthorized') {
+      if (err.kind === 'unauthorized' || err.kind === 'forbidden') {
         this.expire();
       }
       throw err;

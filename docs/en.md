@@ -61,12 +61,18 @@ while **Allow the commands** is off. On:
 - **Battery target**: changes the target of the session in progress, or of
   the next one when nothing is plugged in.
 
-They are choices, never switches: a voice assistant's or a scene's "turn
-everything off" does not reach them. Before each command, the integration
-reads the charger again; a useless command (already in that mode) is not
-sent, a command without a plugged-in vehicle is refused. Gladys waits 5
-seconds for the answer: a command that cannot leave within 3.5 seconds is
-refused unsent. One command at a time.
+They are choices, never switches: a "turn everything off" does not reach
+them. Google Home, Alexa and HomeKit do not see them, and the Gladys MCP
+server only reads them. A scene can change them, but only through an
+explicit action on that choice, and only when the commands are allowed.
+
+Before each command, the integration reads the charger again (and the rule
+of the next session for a target); a useless command (already in that mode)
+is not sent; a command without a plugged-in vehicle, with the charger
+offline or with the charge waiting for approval is refused. A command that
+cannot leave within 3.5 seconds is refused unsent. Gladys gets an answer
+after 4.3 seconds at most, even before Ohme confirmed: the real state shows
+about 10 seconds later. One command at a time.
 
 ## Errors and limits
 
@@ -80,7 +86,11 @@ refused unsent. One command at a time.
   restart. **403**: one hour.
 - **Network, 5xx**: new try after 2, 5, 10, 15, then 30 minutes, never faster
   than the interval.
-- Stops and pauses are kept in `/data`, for 24 h at most.
+- Stops and pauses are kept in `/data`, for 24 h at most. `/data` also keeps
+  the Ohme session token, in clear, in a file only the integration can read
+  (0600); never the e-mail nor the password.
+- **Charger offline**: the connector turns "unavailable"; power, current and
+  voltage keep their last value.
 - **One charger**: with several chargers, only the first one is shown (as
   ohmepy).
 - Charge approval, the schedule (target time), solar mode and the price cap

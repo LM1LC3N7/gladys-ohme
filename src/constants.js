@@ -124,8 +124,12 @@ export const TIMINGS = {
   rateLimitDefault: 15 * MINUTE,
   /** Firebase TOO_MANY_ATTEMPTS_TRY_LATER: one hour. */
   tooManyAttempts: HOUR,
-  /** A 403 that a new token does not cure: one hour, every path. */
+  /** A 403 of the main read that a new token does not cure: one hour, every path. */
   forbiddenPause: HOUR,
+  /** A 403 of a secondary read: that endpoint only is skipped for an hour. */
+  secondaryForbiddenSkip: HOUR,
+  /** The test button (60 s for Gladys): one deadline for the whole run. */
+  quickBudget: 50_000,
   /** A token refused right after a renewal: one new try after 1 h, 6 h, then every 24 h. */
   sessionRetry: [HOUR, 6 * HOUR, 24 * HOUR],
   /** A refused e-mail/password or a rejected sign-in: one new try after 6 h, then every 24 h. */

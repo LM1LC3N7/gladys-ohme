@@ -10,6 +10,9 @@
 
 import { API_MODES, LIMITS, MODES, STATUS } from './constants.js';
 
+/** A drop of the session energy larger than this is a new session (Wh). */
+export const NEW_SESSION_DROP_WH = 100;
+
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** A finite number, else undefined. */
@@ -132,8 +135,13 @@ export function readSnapshot({ session, nextRule = {}, previous }, now) {
   const wh = finite(session.batterySoc?.wh);
   let energyWh = previous?.energyWh;
   if (charging) {
-    const continuing = Boolean(previous) && inProgress(previous.pluggedStatus);
     const reading = wh !== undefined && wh >= 0 ? wh : undefined;
+    // The same session goes on, unless the reading dropped clearly (a new
+    // session started between two reads, the car never seen unplugged).
+    const continuing =
+      Boolean(previous) &&
+      inProgress(previous.pluggedStatus) &&
+      !(reading !== undefined && reading < (previous.energyWh ?? 0) - NEW_SESSION_DROP_WH);
     energyWh =
       reading === undefined
         ? continuing

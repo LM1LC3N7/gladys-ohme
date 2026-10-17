@@ -46,6 +46,9 @@ up to date at the end of every milestone.
 - The rule id to patch for the target: `appliedRule.id` during a session,
   `nextSessionInfo.rule.id` otherwise (as ohmepy).
 - Rate limits: none documented; watch for 429, `Retry-After`.
+- `/v1/chargeSessions` answering an empty list `[]` (no charger online,
+  new account?): handled today as `bad_response` (backoff, "unreachable"
+  status); a real account may show it needs a "no session" state instead.
 
 ## Decisions
 
@@ -80,16 +83,24 @@ up to date at the end of every milestone.
   account). A refused session: 1 h, 6 h, 24 h (as Picnic). Stops persisted
   in `/data` per account and bounded to 24 h at a restart; a change of
   credentials or the test button lifts them. `TOO_MANY_ATTEMPTS_TRY_LATER`
-  is a one-hour pause, not a stop.
+  is a one-hour pause, not a stop. New credentials (even only the password,
+  same e-mail) also forget the stored session, so the new password is
+  checked at once.
 - **429**: `Retry-After` bounded to 1 min – 6 h, 15 min without it; applies
   to the polling, the button and the commands (also when it comes from a
   command, even answered in the background); persisted and kept across
-  Gladys reconnections and account changes. **403** (after a renewal): one
-  hour, same scope. **5xx/network**: 2, 5, 10, 15, then 30 minutes, never
-  shorter than the current interval (an error is never read again faster).
-- **Secondary reads**: `nextSessionInfo` (and the account once known) never
-  hide the session; their failure is logged (code only), only a 429 pauses,
-  after the data is shown.
+  Gladys reconnections and account changes. **403** of the main read after a
+  renewal: one hour, same scope; a 403 on a command refuses that command only
+  ("HTTP 403") and forces one renewal at the next call. **5xx/network**: 2,
+  5, 10, 15, then 30 minutes, never shorter than the current interval (an
+  error is never read again faster).
+- **Secondary reads** (revised after review): the session is shown first
+  (`apply`), then `nextSessionInfo` and, every 30 minutes, the account are
+  read with the current token only: no sign-in, no renewal, no new try. A
+  401/403 there is a secondary failure, never a stop; a 403 skips that
+  endpoint for an hour (no renewal nor `/data` write per cycle for it); only
+  a 429 pauses every path, after the data is shown. Concurrent callers of
+  the token (the polling and a command) join the running sign-in or renewal.
 - **Interval**: 60 s while charging (power > 0) or while Ohme computes the
   schedule (`CALCULATING`/`DELIVERING`), 5 min otherwise (brief). ohmepy's
   immediate re-reads of the transient modes (3 reads, 1 s apart) are not
@@ -108,33 +119,39 @@ up to date at the end of every milestone.
 - **Charging state when unplugged: IDLE** (the core leaves it "without
   value" outside a session; a stale "charging" would mislead scenes).
   Offline (`chargerStatus.online` false): connector UNAVAILABLE, status
-  "Charger offline", no power/current/voltage published, badge unreachable.
+  "Charger offline", no power/current/voltage published (Gladys keeps their
+  last value, documented), badge unreachable, commands refused.
 - **Energy**: Ohme gives no cumulative index (only `batterySoc.wh` of the
   session, reset at each session): no `index`/`energy` feature, no
   `publishEnergyConsumption`, no `daily-consumption`. The lifetime total of
   the charge summary endpoint was not used (unknown behaviour, an extra
   call). The session energy is the highest reading of the session and stays
-  shown after unplugging until the next session.
+  shown after unplugging until the next session; a drop of more than 100 Wh
+  between two reads is taken as a new session (the car may be swapped
+  between two reads).
 - **Vehicle battery**: feature always created, state published only when
   Ohme gives a percentage (car first, then session, as ohmepy).
 - **Commands** (`allow_commands`, off by default): two `text`/`select`
-  features, never switch/binary (a "turn everything off" from Google Home,
-  Alexa, HomeKit, MCP or a scene must not reach them). Mode: smart / max /
-  paused (Home Assistant's select); smart from a pause calls `resume`; max
-  from a pause is refused ("smart first", behaviour of `max-charge` on a
-  paused session unknown); nothing plugged in: refused. Target: 10 % to
-  100 % by 5 % (a select, not a number, per the brief), `PATCH` of the
-  applied rule (or the next session's rule). A fresh session read before
-  each command (never decided on memory), nothing sent when already so, one
+  features, never switch/binary: a "turn everything off" never reaches them;
+  Google Home, Alexa and HomeKit do not expose them, the MCP server only
+  reads them; a scene changes them only through an explicit action on the
+  select, when the commands are allowed. Mode: smart / max / paused (Home
+  Assistant's select); smart from a pause calls `resume`; max from a pause
+  is refused ("smart first", behaviour of `max-charge` on a paused session
+  unknown); nothing plugged in, charger offline, or a charge waiting for
+  approval in the Ohme app (own message): refused. Target: 10 % to 100 % by
+  5 % (a select, not a number, per the brief), `PATCH` of the applied rule,
+  or of the next session's rule read again within the 3.5 s budget. A fresh
+  read before each command (never decided on memory), nothing sent when already so, one
   command at a time, never retried. Timing for the 5 s ack: the read and the
   sign-in/renewal it may need must leave room to send by 3.5 s, else refused
   unsent; Gladys is answered at 4.3 s at the latest, the request finishing in
   the background (logged, its 429 still pauses). A read 10 s after a command
   shows its effect.
-- **Test button**: at most once per 30 s, 8 s requests (worst case: sign-in,
-  account, renewal and retry, session, next ≈ 6 × 8 s < 60 s), answers "in
-  progress" during a running read, respects the 429/403 pause, lifts a stop
-  for one try.
+- **Test button**: at most once per 30 s; one deadline for the whole run
+  (start + 50 s) passed to every request, each also capped at 8 s, so it
+  always answers within its 60 s; answers "in progress" during a running
+  read, respects the 429/403 pause, lifts a stop for one try.
 - **Timezone** for the planned end: a configuration field (default
   Europe/Paris), as gladys-entsoe: the container's time zone is not the
   user's.

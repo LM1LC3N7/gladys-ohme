@@ -10,10 +10,10 @@
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
 import { OhmeClient } from './client.js';
 import { normalizeConfig } from './config.js';
-import { FEATURES, MODES, PATHS, TARGET_OPTIONS, TIMINGS } from './constants.js';
+import { FEATURES, MODES, PATHS, STATUS, TARGET_OPTIONS, TIMINGS } from './constants.js';
 import { COMMANDS, buildDevice, chargerIds, deviceStates } from './devices.js';
 import { ERRORS, STATUS_NAMES, T, age, word } from './i18n.js';
-import { inProgress, intervalOf, readAccount, readSnapshot } from './model.js';
+import { inProgress, intervalOf, readAccount, readSnapshot, statusOf } from './model.js';
 import { OhmeError, errorReason } from './ohme.js';
 import { StatePublisher } from './publisher.js';
 import { fileStore, normalizeMemory } from './store.js';
@@ -26,10 +26,12 @@ const STOPS = {
   login_rejected: TIMINGS.refusedRetry,
   session_refused: TIMINGS.sessionRetry,
 };
-/** Errors a secondary read passes on (the others are logged and ignored). */
-const FATAL = new Set(['refused', 'login_rejected', 'session_refused', 'no_credentials']);
-/** Errors of a command that also hold every other path (a pause or a stop). */
-const HOLDS = new Set(['rate_limited', 'forbidden', ...Object.keys(STOPS)]);
+/**
+ * Errors of a command that also hold every other path (a 429 pause or a
+ * stop). A 403 on a command is only that command refused: only a 403 of the
+ * main read, after a renewal, pauses everything.
+ */
+const HOLDS = new Set(['rate_limited', ...Object.keys(STOPS)]);
 
 const MODE_VALUES = Object.values(MODES);
 
@@ -78,6 +80,8 @@ export class OhmeApp {
     /** A command in flight (one at a time). */
     this.commanding = false;
     this.warnedChargers = false;
+    /** Secondary endpoints skipped after a 403: name -> until (ms). */
+    this.skipUntil = {};
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -89,8 +93,9 @@ export class OhmeApp {
     this.reset();
     this.memory = normalizeMemory(await this.store.load().catch(() => null), this.now());
     const { email, password, account } = this.config;
-    if (clearBlock && this.memory.block) {
+    if (clearBlock && (this.memory.block || this.memory.session)) {
       this.memory.block = null;
+      this.memory.session = null;
       await this.saveMemory();
     }
     // A 429 or 403 pause survives a restart and a change of account.
@@ -146,6 +151,7 @@ export class OhmeApp {
     this.offline = false;
     this.connectedOnce = false;
     this.failures = 0;
+    this.skipUntil = {};
     if (this.pauseKind === 'backoff' || this.now() >= this.pausedUntil) {
       this.pausedUntil = 0;
       this.pauseKind = undefined;
@@ -184,6 +190,8 @@ export class OhmeApp {
     const next = normalizeConfig(raw);
     const previous = this.config;
     if (next.email !== previous.email || next.password !== previous.password) {
+      // New credentials: the stop is lifted and the old session forgotten
+      // (a password changed for the same e-mail must be checked again).
       return this.start(raw, { clearBlock: true });
     }
     this.config = next;
@@ -275,13 +283,31 @@ export class OhmeApp {
     return this.running;
   }
 
-  /** A secondary read failed: logged; only a 429 is passed on (after the main data). */
+  /**
+   * A secondary read failed: logged (code only), never a stop. A 403 skips
+   * that endpoint for an hour (no renewal per cycle for it); only a 429 is
+   * passed on, to pause every path once the main data is shown.
+   */
   secondary(err, what) {
-    if (FATAL.has(err.kind)) {
-      throw err;
-    }
     this.logger.info(`Ohme ${what} not read: ${errorReason(err)}`);
+    if (err.kind === 'forbidden') {
+      this.skipUntil[what] = this.now() + TIMINGS.secondaryForbiddenSkip;
+    }
     return err.kind === 'rate_limited' ? err : undefined;
+  }
+
+  /** Whether a secondary endpoint is skipped after a 403. */
+  skipped(what) {
+    return this.now() < (this.skipUntil[what] ?? 0);
+  }
+
+  noteAccount(account) {
+    this.account = account;
+    this.accountAt = this.now();
+    if (account.chargers > 1 && !this.warnedChargers) {
+      this.warnedChargers = true;
+      this.logger.warn(`Ohme: ${account.chargers} chargers, only the first one is shown`);
+    }
   }
 
   async run({ quick = false } = {}) {
@@ -301,42 +327,53 @@ export class OhmeApp {
     }
     this.client.beginCycle();
     this.client.timeout = quick ? TIMINGS.quickTimeout : undefined;
+    // The test button: one deadline for the whole run, within its 60 s.
+    const options = quick ? { deadline: this.now() + TIMINGS.quickBudget } : {};
     let held;
     try {
-      // The account: needed once (the serial is the device id), then a
-      // secondary read every 30 minutes.
-      if (!this.account || this.now() - this.accountAt >= TIMINGS.accountInterval) {
+      // The account is needed once (the serial is the device id).
+      if (!this.account) {
+        const account = readAccount(await this.client.account(options));
+        if (!account) {
+          throw new OhmeError('no_charger', 'no charger on this account');
+        }
+        this.noteAccount(account);
+      }
+      const session = await this.client.chargeSession(options);
+      if (generation !== this.generation) {
+        return;
+      }
+      const before = this.snapshot;
+      await this.apply(
+        readSnapshot({ session, nextRule: this.nextRule, previous: before }, this.now()),
+      );
+      await this.succeeded();
+
+      // Secondary reads, after the main data is shown: no renewal, no new try.
+      const secondary = { ...options, secondary: true };
+      if (this.now() - this.accountAt >= TIMINGS.accountInterval && !this.skipped('account')) {
         try {
-          const account = readAccount(await this.client.account());
-          if (!account) {
-            throw new OhmeError('no_charger', 'no charger on this account');
-          }
-          this.account = account;
-          this.accountAt = this.now();
-          if (account.chargers > 1 && !this.warnedChargers) {
-            this.warnedChargers = true;
-            this.logger.warn(`Ohme: ${account.chargers} chargers, only the first one is shown`);
+          const account = readAccount(await this.client.account(secondary));
+          if (account) {
+            this.noteAccount(account);
           }
         } catch (err) {
-          if (!this.account || err.kind === 'no_charger') {
-            throw err;
-          }
           held = this.secondary(err, 'account') ?? held;
         }
       }
-      const session = await this.client.chargeSession();
-      try {
-        this.nextRule = await this.client.nextSession();
-      } catch (err) {
-        held = this.secondary(err, 'next session') ?? held;
+      if (!this.skipped('next session')) {
+        try {
+          this.nextRule = await this.client.nextSession(secondary);
+        } catch (err) {
+          held = this.secondary(err, 'next session') ?? held;
+        }
       }
       if (generation !== this.generation) {
         return;
       }
       await this.apply(
-        readSnapshot({ session, nextRule: this.nextRule, previous: this.snapshot }, this.now()),
+        readSnapshot({ session, nextRule: this.nextRule, previous: before }, this.now()),
       );
-      await this.succeeded();
       if (held) {
         await this.failed(held);
       }
@@ -665,7 +702,7 @@ export class OhmeApp {
     }
   }
 
-  /** A command error that holds every path (429, 403, a stop) is applied like a polling one. */
+  /** A command error that holds every path (429, a stop) is applied like a polling one. */
   async hold(err) {
     if (HOLDS.has(err.kind)) {
       await this.failed(err);
@@ -679,7 +716,13 @@ export class OhmeApp {
   /** The request a command needs, from the state just read; undefined when nothing is to do. */
   plan(role, wanted, current) {
     const serial = this.account.serial;
+    if (!current.online) {
+      throw this.error(ERRORS.offline);
+    }
     if (role === FEATURES.MODE) {
+      if (current.pluggedStatus === STATUS.PENDING_APPROVAL) {
+        throw this.error(ERRORS.pendingApproval);
+      }
       if (!inProgress(current.pluggedStatus)) {
         throw this.error(ERRORS.noVehicle);
       }
@@ -725,13 +768,16 @@ export class OhmeApp {
     }
     let current;
     try {
-      const session = await this.client.chargeSession({
-        deadline: sendBy - TIMINGS.commandMinSend,
-      });
-      current = readSnapshot(
-        { session, nextRule: this.nextRule, previous: this.snapshot },
-        this.now(),
-      );
+      const deadline = sendBy - TIMINGS.commandMinSend;
+      const session = await this.client.chargeSession({ deadline });
+      let nextRule = this.nextRule;
+      if (role === FEATURES.SET_TARGET && !inProgress(statusOf(session))) {
+        // The target of the next session: its rule is read again too, never
+        // decided on the one in memory.
+        nextRule = await this.client.nextSession({ deadline, secondary: true });
+        this.nextRule = nextRule;
+      }
+      current = readSnapshot({ session, nextRule, previous: this.snapshot }, this.now());
     } catch (err) {
       const held = await this.hold(err);
       throw this.error(held ?? ERRORS.unknownState);
