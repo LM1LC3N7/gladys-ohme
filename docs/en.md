@@ -1,61 +1,94 @@
-# Demo Devices Template
+# Ohme for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows your **Ohme** EV charger (Home, Home Pro, ePod; United Kingdom and
+Europe) in Gladys, through the Ohme cloud, with the account of the Ohme app.
+
+> **Unofficial API, never tested with a real account nor a real charger.**
+> The integration talks to the API of the Ohme app, like the ohmepy library
+> and the Home Assistant integration. Ohme may change it without notice. Not
+> affiliated with Ohme.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One device per account (the first charger of the account) with:
 
-## Configuration
+| Feature                | Content                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------- |
+| Status                 | Unplugged, Plugged in, Charging, Paused, Finished, Waiting for approval, Charger offline |
+| Connector              | Available, occupied or unavailable (Gladys "charging station" category)                  |
+| Charging state         | Charging, vehicle connected, paused, idle                                                |
+| Power                  | In W                                                                                     |
+| Current                | In A                                                                                     |
+| Voltage                | In V, when Ohme gives it                                                                 |
+| Energy of the session  | In kWh: the energy of the session in progress, then of the last session                  |
+| Vehicle battery        | In %, only when Ohme gives it                                                            |
+| Battery target         | In %, of the session in progress or of the next one                                      |
+| Planned end of charge  | End of the last planned slot, e.g. "2026-10-18 06:30", else "—"                          |
+| Charge mode            | Choice: smart charge, max charge, paused                                                 |
+| Set the battery target | Choice: 10 % to 100 % by 5 %                                                             |
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+Read **every minute while charging**, every 5 minutes otherwise; the account
+(model, firmware) every 30 minutes.
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+**Energy**: Ohme gives no cumulative meter, only the energy of the session.
+The integration therefore publishes **no index** nor daily consumption: the
+energy of the session is a plain sensor, outside the Gladys energy
+monitoring (your main meter already counts the charger).
 
-## Actions
+## Setup
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+1. Install the integration from the Gladys store.
+2. In its configuration, enter the **e-mail** and the **password** of the
+   Ohme app. The password is kept by Gladys in its database, never shown
+   again, sent only to the Ohme sign-in service (Google Firebase, as the app
+   does).
+3. Check the **timezone** (Europe/Paris by default): it is used for the
+   planned end of charge.
+4. Save, then add the charger from the **Discovery** tab.
 
-## Scenes
+The **Test the connection** button reads the charger once (at most every 30
+seconds).
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+## Commands (off by default)
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+The "Charge mode" and "Set the battery target" features refuse every command
+while **Allow the commands** is off. On:
 
-## Dashboard
+- **Max charge**: charges now at full power;
+- **Smart charge**: back to Ohme's schedule; from a pause, resumes the charge;
+- **Paused**: pauses the charge. From a pause, choose "Smart charge" first
+  (max charge is refused);
+- **Battery target**: changes the target of the session in progress, or of
+  the next one when nothing is plugged in.
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+They are choices, never switches: a voice assistant's or a scene's "turn
+everything off" does not reach them. Before each command, the integration
+reads the charger again; a useless command (already in that mode) is not
+sent, a command without a plugged-in vehicle is refused. Gladys waits 5
+seconds for the answer: a command that cannot leave within 3.5 seconds is
+refused unsent. One command at a time.
 
-## Troubleshooting
+## Errors and limits
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **E-mail or password refused**: the integration stops and says so; one new
+  try after 6 h, then every 24 h (not to lock the account). Saving new
+  credentials or the test button try again at once.
+- **Token refused**: renewed once; refused again, a pause then one try after
+  1 h, 6 h, then every 24 h.
+- **429 (too many requests)**: a pause of 1 minute to 6 hours (15 minutes
+  without a hint), for everything (reads, button, commands), kept across a
+  restart. **403**: one hour.
+- **Network, 5xx**: new try after 2, 5, 10, 15, then 30 minutes, never faster
+  than the interval.
+- Stops and pauses are kept in `/data`, for 24 h at most.
+- **One charger**: with several chargers, only the first one is shown (as
+  ohmepy).
+- Charge approval, the schedule (target time), solar mode and the price cap
+  are not supported.
+- The logs never hold the password, the tokens, nor the text of Ohme's answers.
+
+## Credits
+
+Ported from [ohmepy](https://github.com/dan-r/ohmepy) (Daniel Raper, MIT) and
+the [Home Assistant Ohme integration](https://github.com/home-assistant/core/tree/dev/homeassistant/components/ohme)
+(Apache-2.0). Apache-2.0 license.

@@ -1,67 +1,100 @@
-# Template de démonstration
+# Ohme pour Gladys
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Affiche votre borne de recharge **Ohme** (Home, Home Pro, ePod ; Royaume-Uni
+et Europe) dans Gladys, par le cloud Ohme, avec le compte de l'application
+Ohme.
+
+> **API non officielle, jamais testée avec un vrai compte ni une vraie
+> borne.** L'intégration parle à l'API de l'application Ohme, comme la
+> bibliothèque ohmepy et l'intégration Home Assistant. Ohme peut la changer
+> sans prévenir. Sans lien avec Ohme.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil par compte (la première borne du compte) avec :
 
-## Configuration
+| Fonctionnalité              | Contenu                                                                                      |
+| --------------------------- | -------------------------------------------------------------------------------------------- |
+| État                        | Débranché, Branché, En charge, En pause, Terminé, En attente d'approbation, Borne hors ligne |
+| Connecteur                  | Libre, occupé ou indisponible (catégorie « borne de recharge » de Gladys)                    |
+| État de charge              | En charge, véhicule branché, en pause, inactif                                               |
+| Puissance                   | En W                                                                                         |
+| Courant                     | En A                                                                                         |
+| Tension                     | En V, quand Ohme la donne                                                                    |
+| Énergie de la session       | En kWh : l'énergie de la session en cours, puis de la dernière session                       |
+| Batterie du véhicule        | En %, seulement quand Ohme la donne                                                          |
+| Cible de batterie           | En %, de la session en cours ou de la suivante                                               |
+| Fin de charge prévue        | Fin du dernier créneau planifié, ex. « 2026-10-18 06:30 », sinon « — »                       |
+| Mode de charge              | Liste : charge intelligente, charge maximale, en pause                                       |
+| Régler la cible de batterie | Liste : 10 % à 100 % par pas de 5 %                                                          |
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Lecture **toutes les minutes en charge**, toutes les 5 minutes sinon ; le
+compte (modèle, version) toutes les 30 minutes.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+**Énergie** : Ohme ne donne aucun compteur cumulé, seulement l'énergie de la
+session. L'intégration ne publie donc **aucun index** ni consommation
+journalière : l'énergie de la session est un simple capteur, elle n'entre pas
+dans le suivi d'énergie de Gladys (la borne est déjà comptée par votre
+compteur principal).
 
-## Actions
+## Installation
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+1. Installez l'intégration depuis le store de Gladys.
+2. Dans sa configuration, saisissez l'**e-mail** et le **mot de passe** de
+   l'application Ohme. Le mot de passe est gardé par Gladys dans sa base,
+   jamais réaffiché, envoyé seulement au service de connexion d'Ohme (Google
+   Firebase, comme le fait l'application).
+3. Vérifiez le **fuseau horaire** (Europe/Paris par défaut) : il sert à la fin
+   de charge prévue.
+4. Enregistrez, puis ajoutez la borne depuis l'onglet **Découverte**.
 
-## Scènes
+Le bouton **Tester la connexion** lit la borne une fois (au plus toutes les
+30 secondes).
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+## Commandes (désactivées par défaut)
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+Les fonctionnalités « Mode de charge » et « Régler la cible de batterie »
+refusent toute commande tant que l'option **Autoriser les commandes** est
+désactivée. Activée :
 
-## Tableau de bord
+- **Charge maximale** : charge tout de suite à pleine puissance ;
+- **Charge intelligente** : revient au planning d'Ohme ; depuis une pause,
+  reprend la charge ;
+- **En pause** : met la charge en pause. Depuis une pause, choisissez d'abord
+  « Charge intelligente » (la charge maximale est refusée) ;
+- **Cible de batterie** : change la cible de la session en cours, ou de la
+  suivante si rien n'est branché.
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+Ce sont des listes, jamais des interrupteurs : un « éteins tout » d'un
+assistant vocal ou d'une scène ne les touche pas. Avant chaque commande,
+l'intégration relit l'état de la borne ; une commande inutile (déjà dans ce
+mode) n'est pas envoyée, une commande sans véhicule branché est refusée.
+Gladys attend la réponse 5 secondes : une commande qui ne peut pas partir
+dans les 3,5 secondes est refusée sans être envoyée. Une commande à la fois.
 
-## Dépannage
+## Erreurs et limites
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+- **E-mail ou mot de passe refusé** : l'intégration s'arrête et le dit ; un
+  seul nouvel essai après 6 h, puis toutes les 24 h (pour ne pas bloquer le
+  compte). Enregistrer de nouveaux identifiants ou le bouton de test
+  réessaient tout de suite.
+- **Jeton refusé** : renouvelé une fois ; refusé de nouveau, pause puis un
+  essai après 1 h, 6 h, puis toutes les 24 h.
+- **429 (trop de requêtes)** : pause de 1 minute à 6 heures (15 minutes sans
+  indication), pour tout (lectures, bouton, commandes), gardée après un
+  redémarrage. **403** : pause d'une heure.
+- **Réseau, 5xx** : nouvel essai après 2, 5, 10, 15 puis 30 minutes, jamais
+  plus vite que l'intervalle.
+- Les arrêts et pauses sont gardés dans `/data`, au plus 24 h.
+- **Une seule borne** : avec plusieurs bornes, seule la première est montrée
+  (comme ohmepy).
+- Ni l'approbation d'une charge, ni le planning (heure cible), ni le mode
+  solaire, ni le plafond de prix ne sont pris en charge.
+- Les journaux ne contiennent jamais le mot de passe, les jetons, ni le texte
+  des réponses d'Ohme.
+
+## Crédits
+
+Portage de [ohmepy](https://github.com/dan-r/ohmepy) (Daniel Raper, MIT) et
+de l'[intégration Ohme de Home Assistant](https://github.com/home-assistant/core/tree/dev/homeassistant/components/ohme)
+(Apache-2.0). Licence Apache-2.0.
