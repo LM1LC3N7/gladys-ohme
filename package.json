@@ -1,6 +1,6 @@
 {
   "name": "gladys-ohme",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Ohme EV chargers (Home, Home Pro, ePod; UK, EU) for Gladys Assistant through the Ohme cloud: status, power, current, voltage, session energy, vehicle battery, target and planned end; charge mode and target behind an off-by-default option.",
   "type": "module",

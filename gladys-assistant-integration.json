@@ -6,8 +6,8 @@
     "en": "Ohme EV chargers (UK, EU) via the Ohme cloud: status, power, energy, battery; optional commands.",
     "fr": "Bornes Ohme (UK, UE) par le cloud Ohme : état, puissance, énergie, batterie ; commandes en option."
   },
-  "version": "0.1.1",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-ohme:0.1.1",
+  "version": "0.1.2",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-ohme:0.1.2",
   "gladys_version": ">=4.86.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-ohme/main/cover.png",
   "categories": ["energy"],
